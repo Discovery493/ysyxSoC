@@ -72,43 +72,46 @@ class psramChisel extends RawModule {
   val inData                                                                                 = Wire(UInt(io.dio.getWidth.W))
   val di                                                                                     = TriStateInBuf(io.dio, outData, outEnable) // change this if you need
   val negClock                                                                               = (!io.sck).asClock
+  val posClock                                                                               = io.sck.asClock
   val reset                                                                                  = io.ce_n.asAsyncReset
   val s_cmd :: s_rd_addr :: s_wr_addr :: s_rd_wait :: s_wr_data :: s_rd_data :: s_err :: Nil = Enum(7)
-  val state                                                                                  = withClock(negClock) { withReset(reset) { RegInit(s_cmd) } }
+  val state                                                                                  = withClock(posClock) { withReset(reset) { RegInit(s_cmd) } }
   val countNext                                                                              = Wire(UInt(5.W))
-  val counter                                                                                = withClock(negClock) { withReset(reset) { RegNext(countNext, 0.U) } }
+  val counter                                                                                = withClock(posClock) { withReset(reset) { RegNext(countNext, 0.U) } }
   val cmdNext                                                                                = Wire(UInt(8.W))
-  val cmdReg                                                                                 = withClock(negClock) { RegNext(cmdNext) }
+  val cmdReg                                                                                 = withClock(posClock) { RegNext(cmdNext) }
   val addrNext                                                                               = Wire(UInt(24.W))
-  val addrReg = withClock(negClock) {
+  val addrReg = withClock(posClock) {
     RegEnable(
       addrNext,
-      (state === s_rd_addr) || (state === s_wr_addr) || (state === s_rd_wait) || ((state === s_wr_data) && !counter(0))
+      (state === s_rd_addr) || (state === s_wr_addr) || (state === s_rd_wait) || ((state === s_wr_data) && !counter(
+        0
+      ) && (counter > 14.U))
     )
   }
   val byte0N = Wire(UInt(8.W))
   val byte1N = Wire(UInt(8.W))
   val byte2N = Wire(UInt(8.W))
   val byte3N = Wire(UInt(8.W))
-  val byte0 = withClock(negClock) {
+  val byte0 = withClock(posClock) {
     RegEnable(
       byte0N,
       (state === s_rd_wait) && (counter === 14.U) || (state === s_wr_data) && (counter(4, 1) === "b0111".U)
     )
   }
-  val byte1 = withClock(negClock) {
+  val byte1 = withClock(posClock) {
     RegEnable(
       byte1N,
       (state === s_rd_wait) && (counter === 15.U) || (state === s_wr_data) && (counter(4, 1) === "b1000".U)
     )
   }
-  val byte2 = withClock(negClock) {
+  val byte2 = withClock(posClock) {
     RegEnable(
       byte2N,
       (state === s_rd_wait) && (counter === 16.U) || (state === s_wr_data) && (counter(4, 1) === "b1001".U)
     )
   }
-  val byte3 = withClock(negClock) {
+  val byte3 = withClock(posClock) {
     RegEnable(
       byte3N,
       (state === s_rd_wait) && (counter === 17.U) || (state === s_wr_data) && (counter(4, 1) === "b1010".U)
@@ -128,7 +131,7 @@ class psramChisel extends RawModule {
       ),
       s_rd_addr -> Mux(counter < 13.U, s_rd_addr, s_rd_wait),
       s_wr_addr -> Mux(counter < 13.U, s_wr_addr, s_wr_data),
-      s_rd_wait -> Mux(counter < 19.U, s_rd_wait, s_rd_data),
+      s_rd_wait -> Mux(counter < 20.U, s_rd_wait, s_rd_data),
       s_wr_data -> s_wr_data,
       s_rd_data -> s_rd_data
     )
@@ -136,14 +139,14 @@ class psramChisel extends RawModule {
   outEnable := (state === s_rd_data)
   outData := MuxLookup(counter, 0.U)(
     Seq(
-      20.U -> byte0(7, 4),
-      21.U -> byte0(3, 0),
-      22.U -> byte1(7, 4),
-      23.U -> byte1(3, 0),
-      24.U -> byte2(7, 4),
-      25.U -> byte2(3, 0),
-      26.U -> byte3(7, 4),
-      27.U -> byte3(3, 0)
+      21.U -> byte0(7, 4),
+      22.U -> byte0(3, 0),
+      23.U -> byte1(7, 4),
+      24.U -> byte1(3, 0),
+      25.U -> byte2(7, 4),
+      26.U -> byte2(3, 0),
+      27.U -> byte3(7, 4),
+      28.U -> byte3(3, 0)
     )
   )
   inData    := di
