@@ -74,9 +74,10 @@ class psramChisel extends RawModule {
   val negClock                                                                               = (!io.sck).asClock
   val posClock                                                                               = io.sck.asClock
   val reset                                                                                  = io.ce_n.asAsyncReset
-  val qpi                                                                                    = withClock(posClock) { withReset(reset) { RegInit(false.B) } }
   val s_cmd :: s_rd_addr :: s_wr_addr :: s_rd_wait :: s_wr_data :: s_rd_data :: s_err :: Nil = Enum(7)
   val state                                                                                  = withClock(posClock) { withReset(reset) { RegInit(s_cmd) } }
+  val qpiNext                                                                                = Wire(Bool())
+  val qpi                                                                                    = withClock(posClock) { RegEnable(qpiNext, state === s_cmd) }
   val countNext                                                                              = Wire(UInt(5.W))
   val counter                                                                                = withClock(posClock) { withReset(reset) { RegNext(countNext, 0.U) } }
   val cmdNext                                                                                = Wire(UInt(8.W))
