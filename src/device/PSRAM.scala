@@ -74,6 +74,7 @@ class psramChisel extends RawModule {
   val negClock                                                                               = (!io.sck).asClock
   val posClock                                                                               = io.sck.asClock
   val reset                                                                                  = io.ce_n.asAsyncReset
+  val qpi                                                                                    = withClock(posClock) { withReset(reset) { RegInit(false.B) } }
   val s_cmd :: s_rd_addr :: s_wr_addr :: s_rd_wait :: s_wr_data :: s_rd_data :: s_err :: Nil = Enum(7)
   val state                                                                                  = withClock(posClock) { withReset(reset) { RegInit(s_cmd) } }
   val countNext                                                                              = Wire(UInt(5.W))
@@ -86,7 +87,7 @@ class psramChisel extends RawModule {
       addrNext,
       (state === s_rd_addr) || (state === s_wr_addr) || (state === s_rd_wait) || ((state === s_wr_data) && !counter(
         0
-      ) && (counter > 14.U))
+      ) && (counter > Mux(qpi, 8.U, 14.U)))
     )
   }
   val byte0N = Wire(UInt(8.W))
@@ -96,42 +97,54 @@ class psramChisel extends RawModule {
   val byte0 = withClock(posClock) {
     RegEnable(
       byte0N,
-      (state === s_rd_wait) && (counter === 14.U) || (state === s_wr_data) && (counter(4, 1) === "b0111".U)
+      (state === s_rd_wait) && (counter === Mux(qpi, 8.U, 14.U)) || (state === s_wr_data) && (counter(
+        4,
+        1
+      ) === Mux(qpi, "b0100".U, "b0111".U))
     )
   }
   val byte1 = withClock(posClock) {
     RegEnable(
       byte1N,
-      (state === s_rd_wait) && (counter === 15.U) || (state === s_wr_data) && (counter(4, 1) === "b1000".U)
+      (state === s_rd_wait) && (counter === Mux(qpi, 9.U, 15.U)) || (state === s_wr_data) && (counter(
+        4,
+        1
+      ) === Mux(qpi, "b0101".U, "b1000".U))
     )
   }
   val byte2 = withClock(posClock) {
     RegEnable(
       byte2N,
-      (state === s_rd_wait) && (counter === 16.U) || (state === s_wr_data) && (counter(4, 1) === "b1001".U)
+      (state === s_rd_wait) && (counter === Mux(qpi, 10.U, 16.U)) || (state === s_wr_data) && (counter(
+        4,
+        1
+      ) === Mux(qpi, "b0110".U, "b1001".U))
     )
   }
   val byte3 = withClock(posClock) {
     RegEnable(
       byte3N,
-      (state === s_rd_wait) && (counter === 17.U) || (state === s_wr_data) && (counter(4, 1) === "b1010".U)
+      (state === s_rd_wait) && (counter === Mux(qpi, 11.U, 17.U)) || (state === s_wr_data) && (counter(
+        4,
+        1
+      ) === Mux(qpi, "b0111".U, "b1010".U))
     )
   }
   val helper = Module(new PSRAMHelper)
   state := MuxLookup(state, s_err)(
     Seq(
       s_cmd -> Mux(
-        counter < 7.U,
+        counter < Mux(qpi, 1.U, 7.U),
         s_cmd,
         Mux(
-          Cat(cmdReg(6, 0), inData(0)) === "heb".U,
+          Mux(qpi, Cat(cmdReg(3, 0), inData), Cat(cmdReg(6, 0), inData(0))) === "heb".U,
           s_rd_addr,
-          Mux(Cat(cmdReg(6, 0), inData(0)) === "h38".U, s_wr_addr, s_err)
+          Mux(Mux(qpi, Cat(cmdReg(3, 0), inData), Cat(cmdReg(6, 0), inData(0))) === "h38".U, s_wr_addr, s_err)
         )
       ),
-      s_rd_addr -> Mux(counter < 13.U, s_rd_addr, s_rd_wait),
-      s_wr_addr -> Mux(counter < 13.U, s_wr_addr, s_wr_data),
-      s_rd_wait -> Mux(counter < 20.U, s_rd_wait, s_rd_data),
+      s_rd_addr -> Mux(counter < Mux(qpi, 7.U, 13.U), s_rd_addr, s_rd_wait),
+      s_wr_addr -> Mux(counter < Mux(qpi, 7.U, 13.U), s_wr_addr, s_wr_data),
+      s_rd_wait -> Mux(counter < Mux(qpi, 14.U, 20.U), s_rd_wait, s_rd_data),
       s_wr_data -> s_wr_data,
       s_rd_data -> s_rd_data
     )
@@ -139,18 +152,18 @@ class psramChisel extends RawModule {
   outEnable := (state === s_rd_data)
   outData := MuxLookup(counter, 0.U)(
     Seq(
-      21.U -> byte0(7, 4),
-      22.U -> byte0(3, 0),
-      23.U -> byte1(7, 4),
-      24.U -> byte1(3, 0),
-      25.U -> byte2(7, 4),
-      26.U -> byte2(3, 0),
-      27.U -> byte3(7, 4),
-      28.U -> byte3(3, 0)
+      Mux(qpi, 15.U, 21.U) -> byte0(7, 4),
+      Mux(qpi, 16.U, 22.U) -> byte0(3, 0),
+      Mux(qpi, 17.U, 23.U) -> byte1(7, 4),
+      Mux(qpi, 18.U, 24.U) -> byte1(3, 0),
+      Mux(qpi, 19.U, 25.U) -> byte2(7, 4),
+      Mux(qpi, 20.U, 26.U) -> byte2(3, 0),
+      Mux(qpi, 21.U, 27.U) -> byte3(7, 4),
+      Mux(qpi, 22.U, 28.U) -> byte3(3, 0)
     )
   )
   inData    := di
-  cmdNext   := Cat(cmdReg(6, 0), inData(0))
+  cmdNext   := Mux(qpi, Cat(cmdReg(3, 0), inData), Cat(cmdReg(6, 0), inData(0)))
   addrNext  := Mux((state === s_rd_addr) || (state === s_wr_addr), Cat(addrReg(19, 0), inData), addrReg + 1.U)
   countNext := counter + 1.U
   byte0N    := Mux(state === s_rd_wait, helper.io.rdata, Cat(byte0(3, 0), inData))
@@ -159,15 +172,19 @@ class psramChisel extends RawModule {
   byte3N    := Mux(state === s_rd_wait, helper.io.rdata, Cat(byte3(3, 0), inData))
   // connect helper
   helper.io.counter := counter
-  helper.io.ren     := (state === s_rd_wait) && (counter >= 14.U) && (counter <= 17.U)
-  helper.io.wen     := (state === s_wr_data) && (Cat(counter(4, 3), counter(0)) === "b100".U) // 16, 18, 20, 22
-  helper.io.addr    := Cat("h80".U, addrReg)
+  helper.io.ren     := (state === s_rd_wait) && (counter >= Mux(qpi, 8.U, 14.U)) && (counter <= Mux(qpi, 11.U, 17.U))
+  helper.io.wen := (state === s_wr_data) && Mux(
+    qpi,
+    ((counter === 10.U) || (counter === 12.U) || (counter === 14.U) || (counter === 16.U)),
+    (Cat(counter(4, 3), counter(0)) === "b100".U)
+  ) // 16, 18, 20, 22
+  helper.io.addr := Cat("h80".U, addrReg)
   helper.io.wdata := MuxLookup(counter, 0.U)(
     Seq(
-      16.U -> byte0,
-      18.U -> byte1,
-      20.U -> byte2,
-      22.U -> byte3
+      Mux(qpi, 10.U, 16.U) -> byte0,
+      Mux(qpi, 12.U, 18.U) -> byte1,
+      Mux(qpi, 14.U, 20.U) -> byte2,
+      Mux(qpi, 16.U, 22.U) -> byte3
     )
   )
 }
