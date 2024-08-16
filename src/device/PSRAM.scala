@@ -76,10 +76,10 @@ class psramChisel extends RawModule {
   val reset                                                                                  = io.ce_n.asAsyncReset
   val s_cmd :: s_rd_addr :: s_wr_addr :: s_rd_wait :: s_wr_data :: s_rd_data :: s_err :: Nil = Enum(7)
   val state                                                                                  = withClock(posClock) { withReset(reset) { RegInit(s_cmd) } }
-  val qpiNext                                                                                = Wire(Bool())
-  val qpi                                                                                    = withClock(posClock) { RegEnable(qpiNext, state === s_cmd) }
   val countNext                                                                              = Wire(UInt(5.W))
   val counter                                                                                = withClock(posClock) { withReset(reset) { RegNext(countNext, 0.U) } }
+  val qpiNext                                                                                = Wire(Bool())
+  val qpi                                                                                    = withClock(posClock) { RegEnable(qpiNext, (state === s_cmd) && (counter === 7.U)) }
   val cmdNext                                                                                = Wire(UInt(8.W))
   val cmdReg                                                                                 = withClock(posClock) { RegNext(cmdNext) }
   val addrNext                                                                               = Wire(UInt(24.W))
@@ -171,6 +171,7 @@ class psramChisel extends RawModule {
   byte1N    := Mux(state === s_rd_wait, helper.io.rdata, Cat(byte1(3, 0), inData))
   byte2N    := Mux(state === s_rd_wait, helper.io.rdata, Cat(byte2(3, 0), inData))
   byte3N    := Mux(state === s_rd_wait, helper.io.rdata, Cat(byte3(3, 0), inData))
+  qpiNext   := Cat(cmdReg(6, 0), inData(0)) === "h35".U
   // connect helper
   helper.io.counter := counter
   helper.io.ren     := (state === s_rd_wait) && (counter >= Mux(qpi, 8.U, 14.U)) && (counter <= Mux(qpi, 11.U, 17.U))
