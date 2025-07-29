@@ -45,43 +45,6 @@ class sdram extends BlackBox {
   val io = IO(Flipped(new SDRAMIO))
 }
 
-/*class sdramBank extends RawModule {
-  val io = IO(new Bundle {
-    val clk         = Input(Bool())
-    val rst         = Input(Bool())
-    val cs          = Input(Bool())
-    val we          = Input(Bool())
-    val cas         = Input(Bool())
-    val ras         = Input(Bool())
-    val a           = Input(UInt(13.W))
-    val dqm         = Input(UInt(2.W))
-    val inData      = Input(UInt(16.W))
-    val outData     = Output(UInt(16.W))
-    val outEnable   = Output(Bool())
-    val burstLength = Input(UInt(3.W))
-    val CASLatency  = Input(UInt(3.W))
-  })
-  val s_idle :: s_active :: s_r_burst :: s_w_burst :: s_wait_latency :: Nil = Enum(5)
-
-  val state          = withClock(io.clk.asClock) { withReset(io.rst) { RegInit(s_idle) } }
-  val cmd_ACTIVE     = !io.ras && io.cas && io.we
-  val cmd_READ       = io.ras && !io.cas && io.we
-  val cmd_WRITE      = io.ras && !io.cas && !io.we
-  val cmd_BURST_TER  = io.ras && io.cas && !io.we
-  val cmd_PRECHARGE  = !io.ras && io.cas && !io.we
-  val latencyNext    = Wire(UInt(2.W))
-  val latencyEnable  = Wire(Bool())
-  val latencyCounter = RegEnable(latencyNext, latencyEnable)
-  state := MuxLookup(state, s_idle)(
-    Seq(
-      s_idle    -> Mux(cmd_ACTIVE, s_active, s_idle),
-      s_active  -> Mux(cmd_PRECHARGE, s_idle, Mux(cmd_READ, s_r_burst, Mux(cmd_WRITE, s_w_burst, s_active))),
-      s_r_burst -> Mux(cmd_PRECHARGE || !(latencyCounter.orR) || cmd_BURST_TER, s_wait_latency, s_r_burst),
-      s_w_burst -> Mux(cmd_PRECHARGE || !(latencyCounter.orR) || cmd_BURST_TER, s_wait_latency, s_w_burst)
-    )
-  )
-  val activeRow = RegEnable(io.a, cmd_ACTIVE) // store row address in ACTIVE state
-}*/
 class SDRAMHelper extends BlackBox with HasBlackBoxInline {
   val io = IO(new Bundle {
     val clk   = Input(Bool())
@@ -179,70 +142,6 @@ class sdramChisel extends RawModule {
 
   outEnable := withClock(posClock) { RegNext(state === s_r_burst) } // TODO: only caslatency=2 case implemented
   outData   := readFIFO(15, 0)
-  /*val bank0        = Module(new sdramBank)
-  val bank1        = Module(new sdramBank)
-  val bank2        = Module(new sdramBank)
-  val bank3        = Module(new sdramBank)
-  bank0.io.clk    := io.clk && io.cke
-  bank1.io.clk    := io.clk && io.cke
-  bank2.io.clk    := io.clk && io.cke
-  bank3.io.clk    := io.clk && io.cke
-  bank0.io.rst    := bankReset
-  bank1.io.rst    := bankReset
-  bank2.io.rst    := bankReset
-  bank3.io.rst    := bankReset
-  bank0.io.cs     := io.cs || !(bankSel === 0.U)
-  bank1.io.cs     := io.cs || !(bankSel === 1.U)
-  bank2.io.cs     := io.cs || !(bankSel === 2.U)
-  bank3.io.cs     := io.cs || !(bankSel === 3.U)
-  bank0.io.we     := io.we
-  bank1.io.we     := io.we
-  bank2.io.we     := io.we
-  bank3.io.we     := io.we
-  bank0.io.cas    := io.cas
-  bank1.io.cas    := io.cas
-  bank2.io.cas    := io.cas
-  bank3.io.cas    := io.cas
-  bank0.io.ras    := io.ras
-  bank1.io.ras    := io.ras
-  bank2.io.ras    := io.ras
-  bank3.io.ras    := io.ras
-  bank0.io.a      := io.a
-  bank1.io.a      := io.a
-  bank2.io.a      := io.a
-  bank3.io.a      := io.a
-  bank0.io.dqm    := io.dqm
-  bank1.io.dqm    := io.dqm
-  bank2.io.dqm    := io.dqm
-  bank3.io.dqm    := io.dqm
-  bank0.io.inData := inData
-  bank1.io.inData := inData
-  bank2.io.inData := inData
-  bank3.io.inData := inData
-  outData := MuxLookup(bankSel, 0.U)(
-    Seq(
-      0.U -> bank0.io.outData,
-      1.U -> bank1.io.outData,
-      2.U -> bank2.io.outData,
-      3.U -> bank3.io.outData
-    )
-  )
-  outEnable := MuxLookup(bankSel, false.B)(
-    Seq(
-      0.U -> bank0.io.outEnable,
-      1.U -> bank1.io.outEnable,
-      2.U -> bank2.io.outEnable,
-      3.U -> bank3.io.outEnable
-    )
-  )
-  bank0.io.burstLength := burstLength
-  bank1.io.burstLength := burstLength
-  bank2.io.burstLength := burstLength
-  bank3.io.burstLength := burstLength
-  bank0.io.CASLatency  := CASLatency
-  bank1.io.CASLatency  := CASLatency
-  bank2.io.CASLatency  := CASLatency
-  bank3.io.CASLatency  := CASLatency*/
 }
 
 class AXI4SDRAM(address: Seq[AddressSet])(implicit p: Parameters) extends LazyModule {
