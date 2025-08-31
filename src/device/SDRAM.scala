@@ -121,10 +121,22 @@ class sdramChisel extends RawModule {
   val wdataReg = withClock(posClock) {
     RegEnable(inData, cmd_WRITE || ((burstCounter === 1.U) && (state === s_w_burst)))
   }
-  val rowReg   = withClock(posClock) { RegEnable(io.a, cmd_ACTIVE) }
+  val rowReg0  = withClock(posClock) { RegEnable(io.a, cmd_ACTIVE && (io.ba === 0.U)) }
+  val rowReg1  = withClock(posClock) { RegEnable(io.a, cmd_ACTIVE && (io.ba === 1.U)) }
+  val rowReg2  = withClock(posClock) { RegEnable(io.a, cmd_ACTIVE && (io.ba === 2.U)) }
+  val rowReg3  = withClock(posClock) { RegEnable(io.a, cmd_ACTIVE && (io.ba === 3.U)) }
   val addrNext = Wire(UInt(25.W))
   val addrReg  = withClock(posClock) { RegEnable(addrNext, cmd_READ || cmd_WRITE || (state =/= s_idle)) }
-  addrNext := Mux(cmd_READ || cmd_WRITE, Cat(rowReg, io.ba, io.a(8, 0), "b0".U), addrReg + 2.U)
+  addrNext := Mux(
+    cmd_READ || cmd_WRITE,
+    Cat(
+      MuxLookup(io.ba, 0.U)(Seq(0.U -> rowReg0, 1.U -> rowReg1, 2.U -> rowReg2, 3.U -> rowReg3)),
+      io.ba,
+      io.a(8, 0),
+      "b0".U
+    ),
+    addrReg + 2.U
+  )
   val fifoNext = Wire(UInt(32.W))
   val readFIFO = withClock(posClock) { RegNext(fifoNext) }
   val helper   = Module(new SDRAMHelper)
