@@ -10,7 +10,7 @@ import org.chipsalliance.cde.config.Parameters
 import freechips.rocketchip.diplomacy._
 import freechips.rocketchip.util._
 
-class SDRAMIO extends Bundle {
+class SDRAMIOold extends Bundle {
   val clk = Output(Bool())
   val cke = Output(Bool())
   val cs  = Output(Bool())
@@ -20,7 +20,25 @@ class SDRAMIO extends Bundle {
   val a   = Output(UInt(13.W))
   val ba  = Output(UInt(2.W))
   val dqm = Output(UInt(2.W))
-  val dq  = Analog(16.W)
+  //val dq  = Analog(16.W)
+  val dqIn    = Output(UInt(16.W))
+  val dqOut   = Input(UInt(16.W))
+  val dqOutEn = Input(Bool())
+}
+
+class SDRAMIO extends Bundle {
+  val clk  = Output(Bool())
+  val cke  = Output(Bool())
+  val cs   = Output(UInt(4.W))
+  val ras  = Output(Bool())
+  val cas  = Output(Bool())
+  val we   = Output(Bool())
+  val a    = Output(UInt(13.W))
+  val ba   = Output(UInt(2.W))
+  val dqm0 = Output(UInt(2.W))
+  val dqm1 = Output(UInt(2.W))
+  val dq0  = Analog(16.W)
+  val dq1  = Analog(16.W)
 }
 
 class sdram_top_axi extends BlackBox {
@@ -45,7 +63,9 @@ class sdram extends BlackBox {
   val io = IO(Flipped(new SDRAMIO))
 }
 
-class SDRAMHelper extends BlackBox with HasBlackBoxInline {
+class SDRAMHelper(memOffset: Int, high: Int)
+    extends BlackBox(Map("offset" -> memOffset, "hiAddr" -> high))
+    with HasBlackBoxInline {
   val io = IO(new Bundle {
     val clk   = Input(Bool())
     val addr  = Input(UInt(25.W))
@@ -57,7 +77,10 @@ class SDRAMHelper extends BlackBox with HasBlackBoxInline {
   })
   setInline(
     "SDRAMHelper.v",
-    """module SDRAMHelper(
+    """module SDRAMHelper #(
+      |  parameter offset = 32'h0,
+      |  hiAddr = 32'h0 // 0 for low addr, 1 for high addr
+      |)(
       |  input clk,
       |  input [24:0] addr,
       |  input [1:0] dqm,
@@ -66,8 +89,8 @@ class SDRAMHelper extends BlackBox with HasBlackBoxInline {
       |  input [15:0] wdata,
       |  output reg [15:0] rdata
       |);
-      |import "DPI-C" function void sdram_read(input int addr, output shortint data);
-      |import "DPI-C" function void sdram_write(input int addr, input shortint data, input byte dqm);
+      |import "DPI-C" function void sdram_read(input int addr, output shortint data, input int offset, input int hiAddr);
+      |import "DPI-C" function void sdram_write(input int addr, input shortint data, input byte dqm, input int offset, input int hiAddr);
       |always @(posedge clk) begin
       |  if (ren) begin
       |    sdram_read({7'b0, addr}, rdata);
@@ -84,13 +107,8 @@ class SDRAMHelper extends BlackBox with HasBlackBoxInline {
   )
 }
 
-class sdramChisel extends RawModule {
-  val io        = IO(Flipped(new SDRAMIO))
-  val outEnable = Wire(Bool())
-  val outData   = Wire(UInt(io.dq.getWidth.W))
-  val inData    = Wire(UInt(io.dq.getWidth.W))
-  val di        = TriStateInBuf(io.dq, outData, outEnable) // change this if you need
-  inData := di
+class sdramChisel(memOffset: Int, high: Int) extends RawModule {
+  val io                                      = IO(Flipped(new SDRAMIOold))
   val posClock                                = io.clk.asClock
   val negClock                                = (!io.clk).asClock
   val bankReset                               = !io.cs && !io.ras && !io.cas && !io.we // reset all banks when load mode register
@@ -99,10 +117,10 @@ class sdramChisel extends RawModule {
   val CASLatency                              = modeRegister(6, 4)
   val s_idle :: s_r_burst :: s_w_burst :: Nil = Enum(3)
   val state                                   = withClock(posClock) { withReset(bankReset) { RegInit(s_idle) } }
-  val cmd_ACTIVE                              = !io.ras && io.cas && io.we
-  val cmd_READ                                = io.ras && !io.cas && io.we
-  val cmd_WRITE                               = io.ras && !io.cas && !io.we
-  val cmd_BURST_TER                           = io.ras && io.cas && !io.we
+  val cmd_ACTIVE                              = !io.cs && !io.ras && io.cas && io.we
+  val cmd_READ                                = !io.cs && io.ras && !io.cas && io.we
+  val cmd_WRITE                               = !io.cs && io.ras && !io.cas && !io.we
+  val cmd_BURST_TER                           = !io.cs && io.ras && io.cas && !io.we
   val blCounterNext                           = Wire(UInt(4.W))
   val burstCounter = withClock(posClock) {
     withReset(cmd_READ || cmd_WRITE) { RegNext(blCounterNext, burstLength - 1.U) }
@@ -119,7 +137,7 @@ class sdramChisel extends RawModule {
   val bankReg   = withClock(posClock) { RegEnable(io.ba, cmd_READ || cmd_WRITE) }
   val dqmReg    = withClock(posClock) { RegEnable(io.dqm, cmd_WRITE || ((burstCounter === 1.U) && (state === s_w_burst))) }
   val wdataReg = withClock(posClock) {
-    RegEnable(inData, cmd_WRITE || ((burstCounter === 1.U) && (state === s_w_burst)))
+    RegEnable(io.dqIn, cmd_WRITE || ((burstCounter === 1.U) && (state === s_w_burst)))
   }
   val rowReg0  = withClock(posClock) { RegEnable(io.a, cmd_ACTIVE && (io.ba === 0.U)) }
   val rowReg1  = withClock(posClock) { RegEnable(io.a, cmd_ACTIVE && (io.ba === 1.U)) }
@@ -139,7 +157,7 @@ class sdramChisel extends RawModule {
   )
   val fifoNext = Wire(UInt(32.W))
   val readFIFO = withClock(posClock) { RegNext(fifoNext) }
-  val helper   = Module(new SDRAMHelper)
+  val helper   = Module(new SDRAMHelper(memOffset, high))
   fifoNext := (readFIFO >> 16.U) & Mux(CASLatency === 2.U, "hff00".U, "h00ff".U) | Mux(
     CASLatency === 2.U,
     Cat("h00".U, helper.io.rdata),
@@ -152,8 +170,66 @@ class sdramChisel extends RawModule {
   helper.io.wen   := (state === s_w_burst)
   helper.io.wdata := wdataReg
 
-  outEnable := withClock(posClock) { RegNext(state === s_r_burst) } // TODO: only caslatency=2 case implemented
-  outData   := readFIFO(15, 0)
+  io.dqOutEn := withClock(posClock) { RegNext(state === s_r_burst) } // TODO: only caslatency=2 case implemented
+  io.dqOut   := readFIFO(15, 0)
+}
+
+class ExtendedSDRAM extends RawModule {
+  val io     = IO(Flipped(new SDRAMIO))
+  val sdram0 = Module(new sdramChisel(0, 0))
+  val sdram1 = Module(new sdramChisel(0, 1))
+  val sdram2 = Module(new sdramChisel(0x400000, 0))
+  val sdram3 = Module(new sdramChisel(0x400000, 1))
+  sdram0.io.clk <> io.clk
+  sdram1.io.clk <> io.clk
+  sdram2.io.clk <> io.clk
+  sdram3.io.clk <> io.clk
+  sdram0.io.cke <> io.cke
+  sdram1.io.cke <> io.cke
+  sdram2.io.cke <> io.cke
+  sdram3.io.cke <> io.cke
+  sdram0.io.a <> io.a
+  sdram1.io.a <> io.a
+  sdram2.io.a <> io.a
+  sdram3.io.a <> io.a
+  sdram0.io.ba <> io.ba
+  sdram1.io.ba <> io.ba
+  sdram2.io.ba <> io.ba
+  sdram3.io.ba <> io.ba
+  sdram0.io.cs <> io.cs(0)
+  sdram1.io.cs <> io.cs(1)
+  sdram2.io.cs <> io.cs(2)
+  sdram3.io.cs <> io.cs(3)
+  sdram0.io.ras <> io.ras
+  sdram1.io.ras <> io.ras
+  sdram2.io.ras <> io.ras
+  sdram3.io.ras <> io.ras
+  sdram0.io.cas <> io.cas
+  sdram1.io.cas <> io.cas
+  sdram2.io.cas <> io.cas
+  sdram3.io.cas <> io.cas
+  sdram0.io.we <> io.we
+  sdram1.io.we <> io.we
+  sdram2.io.we <> io.we
+  sdram3.io.we <> io.we
+  sdram0.io.dqm := io.dqm0
+  sdram1.io.dqm := io.dqm0
+  sdram2.io.dqm := io.dqm1
+  sdram3.io.dqm := io.dqm1
+  val outEn0   = Wire(Bool())
+  val outEn1   = Wire(Bool())
+  val outData0 = Wire(UInt(io.dq0.getWidth.W))
+  val outData1 = Wire(UInt(io.dq1.getWidth.W))
+  val di0      = TriStateInBuf(io.dq0, outData0, outEn0)
+  val di1      = TriStateInBuf(io.dq1, outData1, outEn1)
+  outEn0         := Mux(io.cs(0) && io.cs(1), sdram0.io.dqOutEn, sdram2.io.dqOutEn)
+  outEn1         := Mux(io.cs(0) && io.cs(1), sdram1.io.dqOutEn, sdram3.io.dqOutEn)
+  outData0       := Mux(io.cs(0) && io.cs(1), sdram0.io.dqOut, sdram2.io.dqOut)
+  outData1       := Mux(io.cs(0) && io.cs(1), sdram1.io.dqOut, sdram3.io.dqOut)
+  sdram0.io.dqIn := di0
+  sdram1.io.dqIn := di0
+  sdram2.io.dqIn := di1
+  sdram3.io.dqIn := di1
 }
 
 class AXI4SDRAM(address: Seq[AddressSet])(implicit p: Parameters) extends LazyModule {
