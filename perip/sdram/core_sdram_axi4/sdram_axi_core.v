@@ -55,8 +55,8 @@ module sdram_axi_core (
     , output        sdram_ras_o
     , output        sdram_cas_o
     , output        sdram_we_o
-    , output [ 1:0] sdram_dqm_o0
-    , output [ 1:0] sdram_dqm_o1
+    , output [ 1:0] sdram_dqm0_o
+    , output [ 1:0] sdram_dqm1_o
     , output [12:0] sdram_addr_o
     , output [ 1:0] sdram_ba_o
     , output [15:0] sdram_data_output_o0
@@ -156,22 +156,28 @@ module sdram_axi_core (
 
   reg [CMD_W-1:0] command_q;
   reg [SDRAM_ROW_W-1:0] addr_q;
-  reg [SDRAM_DATA_W-1:0] data_q;
+  reg [SDRAM_DATA_W-1:0] data0_q;
+  reg [SDRAM_DATA_W-1:0] data1_q;
   reg data_rd_en_q;
-  reg [SDRAM_DQM_W-1:0] dqm_q;
+  reg [SDRAM_DQM_W-1:0] dqm0_q;
+  reg [SDRAM_DQM_W-1:0] dqm1_q;
   reg cke_q;
   reg [SDRAM_BANK_W-1:0] bank_q;
+  reg [3:0] cs_q;
 
   // Buffer half word during read and write commands
   reg [SDRAM_DATA_W-1:0] data_buffer_q;
   reg [SDRAM_DQM_W-1:0] dqm_buffer_q;
 
-  wire [SDRAM_DATA_W-1:0] sdram_data_in_w;
+  wire [SDRAM_DATA_W-1:0] sdram_data_in0_w;
+  wire [SDRAM_DATA_W-1:0] sdram_data_in1_w;
 
   reg refresh_q;
 
-  reg [SDRAM_BANKS-1:0] row_open_q;
-  reg [SDRAM_ROW_W-1:0] active_row_q[0:SDRAM_BANKS-1];
+  reg [SDRAM_BANKS-1:0] row_open0_q;
+  reg [SDRAM_BANKS-1:0] row_open1_q;
+  reg [SDRAM_ROW_W-1:0] active_row0_q[0:SDRAM_BANKS-1];
+  reg [SDRAM_ROW_W-1:0] active_row1_q[0:SDRAM_BANKS-1];
 
   reg [STATE_W-1:0] state_q;
   reg [STATE_W-1:0] next_state_r;
@@ -181,10 +187,10 @@ module sdram_axi_core (
 
   // Address bits
   wire [SDRAM_ROW_W-1:0] addr_col_w = {
-    {(SDRAM_ROW_W - SDRAM_COL_W) {1'b0}}, ram_addr_w[SDRAM_COL_W:2], 1'b0
+    {(SDRAM_ROW_W - SDRAM_COL_W) {1'b0}}, ram_addr_w[SDRAM_COL_W+1:2]
   };
-  wire [SDRAM_ROW_W-1:0] addr_row_w = ram_addr_w[SDRAM_ADDR_W:SDRAM_COL_W+2+1];
-  wire [SDRAM_BANK_W-1:0] addr_bank_w = ram_addr_w[SDRAM_COL_W+2:SDRAM_COL_W+2-1];
+  wire [SDRAM_ROW_W-1:0] addr_row_w = ram_addr_w[SDRAM_ADDR_W+1:SDRAM_COL_W+3+1];
+  wire [SDRAM_BANK_W-1:0] addr_bank_w = ram_addr_w[SDRAM_COL_W+3:SDRAM_COL_W+3-1];
 
   //-----------------------------------------------------------------
   // SDRAM State Machine
@@ -209,18 +215,21 @@ module sdram_axi_core (
         //        auto refreshes.
         if (refresh_q) begin
           // Close open rows, then refresh
-          if (|row_open_q) next_state_r = STATE_PRECHARGE;
+          if ((!ram_addr_w[26] && |row_open0_q) || (ram_addr_w[26] && |row_open1_q))
+            next_state_r = STATE_PRECHARGE;
           else next_state_r = STATE_REFRESH;
 
           target_state_r = STATE_REFRESH;
         end  // Access request
         else if (ram_req_w) begin
           // Open row hit
-          if (row_open_q[addr_bank_w] && addr_row_w == active_row_q[addr_bank_w]) begin
+          if ((!ram_addr_w[26] && row_open0_q[addr_bank_w] && addr_row_w == active_row0_q[addr_bank_w]) ||
+						(ram_addr_w[26] && row_open1_q[addr_bank_w] && addr_row_w == active_row1_q[addr_bank_w])) begin
             if (!ram_rd_w) next_state_r = STATE_WRITE0;
             else next_state_r = STATE_READ;
           end  // Row miss, close row, open new row
-          else if (row_open_q[addr_bank_w]) begin
+          else if ((!ram_addr_w[26] && row_open0_q[addr_bank_w]) ||
+            (ram_addr_w[26] && row_open1_q[addr_bank_w])) begin
             next_state_r = STATE_PRECHARGE;
 
             if (!ram_rd_w) target_state_r = STATE_WRITE0;
@@ -256,7 +265,8 @@ module sdram_axi_core (
         // Another pending read request (with no refresh pending)
         if (!refresh_q && ram_req_w && ram_rd_w) begin
           // Open row hit
-          if (row_open_q[addr_bank_w] && addr_row_w == active_row_q[addr_bank_w])
+          if ((!ram_addr_w[26] && row_open0_q[addr_bank_w] && addr_row_w == active_row0_q[addr_bank_w])
+					  || (ram_addr_w[26] && row_open1_q[addr_bank_w] && addr_row_w == active_row1_q[addr_bank_w]))
             next_state_r = STATE_READ;
         end
       end
@@ -275,7 +285,8 @@ module sdram_axi_core (
         // Another pending write request (with no refresh pending)
         if (!refresh_q && ram_req_w && (ram_wr_w != 4'b0)) begin
           // Open row hit
-          if (row_open_q[addr_bank_w] && addr_row_w == active_row_q[addr_bank_w])
+          if ((!ram_addr_w[26] && row_open0_q[addr_bank_w] && addr_row_w == active_row0_q[addr_bank_w])
+						|| (ram_addr_w[26] && row_open1_q[addr_bank_w] && addr_row_w == active_row1_q[addr_bank_w]))
             next_state_r = STATE_WRITE0;
         end
       end
@@ -333,7 +344,10 @@ module sdram_axi_core (
         // Another pending read request (with no refresh pending)
         if (!refresh_q && ram_req_w && ram_rd_w) begin
           // Open row hit
-          if (row_open_q[addr_bank_w] && addr_row_w == active_row_q[addr_bank_w]) delay_r = 4'd0;
+          if ((!ram_addr_w[26] && row_open0_q[addr_bank_w] && addr_row_w == active_row0_q[addr_bank_w]) 
+					  || (ram_addr_w[26] && row_open1_q[addr_bank_w] && addr_row_w == active_row1_q[addr_bank_w]))begin
+            delay_r = 4'd0;
+          end
         end
       end
       //-----------------------------------------
@@ -410,9 +424,16 @@ module sdram_axi_core (
   //-----------------------------------------------------------------
 
   reg [SDRAM_DATA_W-1:0] sample_data0_q;
-  always @(posedge clk_i or posedge rst_i)
-    if (rst_i) sample_data0_q <= {SDRAM_DATA_W{1'b0}};
-    else sample_data0_q <= sdram_data_in_w;
+  reg [SDRAM_DATA_W-1:0] sample_data1_q;
+  always @(posedge clk_i or posedge rst_i) begin
+    if (rst_i) begin
+      sample_data0_q <= {SDRAM_DATA_W{1'b0}};
+      sample_data1_q <= {SDRAM_DATA_W{1'b0}};
+    end else begin
+      sample_data0_q <= sdram_data_in0_w;
+      sample_data1_q <= sdram_data_in1_w;
+    end
+  end
 
   reg [SDRAM_DATA_W-1:0] sample_data_q;
   always @(posedge clk_i or posedge rst_i)
@@ -427,17 +448,24 @@ module sdram_axi_core (
   always @(posedge clk_i or posedge rst_i)
     if (rst_i) begin
       command_q    <= CMD_NOP;
-      data_q       <= 16'b0;
+      data0_q      <= 16'b0;
+      data1_q      <= 16'b0;
       addr_q       <= {SDRAM_ROW_W{1'b0}};
       bank_q       <= {SDRAM_BANK_W{1'b0}};
       cke_q        <= 1'b0;
-      dqm_q        <= {SDRAM_DQM_W{1'b0}};
+      dqm0_q       <= {SDRAM_DQM_W{1'b0}};
+      dqm1_q       <= {SDRAM_DQM_W{1'b0}};
       data_rd_en_q <= 1'b1;
       dqm_buffer_q <= {SDRAM_DQM_W{1'b0}};
+      cs_q         <= 4'b1111;
 
-      for (idx = 0; idx < SDRAM_BANKS; idx = idx + 1) active_row_q[idx] <= {SDRAM_ROW_W{1'b0}};
+      for (idx = 0; idx < SDRAM_BANKS; idx = idx + 1) begin
+        active_row0_q[idx] <= {SDRAM_ROW_W{1'b0}};
+        active_row1_q[idx] <= {SDRAM_ROW_W{1'b0}};
+      end
 
-      row_open_q <= {SDRAM_BANKS{1'b0}};
+      row_open0_q <= {SDRAM_BANKS{1'b0}};
+      row_open1_q <= {SDRAM_BANKS{1'b0}};
     end else begin
       case (state_q)
         //-----------------------------------------
@@ -449,11 +477,13 @@ module sdram_axi_core (
           addr_q       <= {SDRAM_ROW_W{1'b0}};
           bank_q       <= {SDRAM_BANK_W{1'b0}};
           data_rd_en_q <= 1'b1;
+          cs_q         <= 4'b0;
         end
         //-----------------------------------------
         // STATE_INIT
         //-----------------------------------------
         STATE_INIT: begin
+          cs_q <= 4'b0;  // load mode register and init for all SDRAMs
           // Assert CKE
           if (refresh_timer_q == 50) begin
             // Assert CKE after 100uS
@@ -481,13 +511,22 @@ module sdram_axi_core (
         // STATE_ACTIVATE
         //-----------------------------------------
         STATE_ACTIVATE: begin
+          // Select SDRAMs
+          cs_q      <= {{2{~ram_addr_w[26]}}, {2{ram_addr_w[26]}}};
           // Select a row and activate it
-          command_q                 <= CMD_ACTIVE;
-          addr_q                    <= addr_row_w;
-          bank_q                    <= addr_bank_w;
+          command_q <= CMD_ACTIVE;
+          addr_q    <= addr_row_w;
+          bank_q    <= addr_bank_w;
 
-          active_row_q[addr_bank_w] <= addr_row_w;
-          row_open_q[addr_bank_w]   <= 1'b1;
+          if (!ram_addr_w[26]) begin
+            active_row0_q[addr_bank_w] <= addr_row_w;
+            row_open0_q[addr_bank_w]   <= 1'b1;
+          end else begin
+            active_row1_q[addr_bank_w] <= addr_row_w;
+            row_open1_q[addr_bank_w]   <= 1'b1;
+          end
+          //active_row_q[addr_bank_w] <= addr_row_w;
+          //row_open_q[addr_bank_w] <= 1'b1;
         end
         //-----------------------------------------
         // STATE_PRECHARGE
@@ -498,14 +537,16 @@ module sdram_axi_core (
             // Precharge all banks
             command_q         <= CMD_PRECHARGE;
             addr_q[ALL_BANKS] <= 1'b1;
-            row_open_q        <= {SDRAM_BANKS{1'b0}};
+            row_open0_q       <= {SDRAM_BANKS{1'b0}};
+            row_open1_q       <= {SDRAM_BANKS{1'b0}};
           end else begin
             // Precharge specific banks
-            command_q               <= CMD_PRECHARGE;
-            addr_q[ALL_BANKS]       <= 1'b0;
-            bank_q                  <= addr_bank_w;
+            command_q                <= CMD_PRECHARGE;
+            addr_q[ALL_BANKS]        <= 1'b0;
+            bank_q                   <= addr_bank_w;
 
-            row_open_q[addr_bank_w] <= 1'b0;
+            row_open0_q[addr_bank_w] <= 1'b0;
+            row_open1_q[addr_bank_w] <= 1'b0;
           end
         end
         //-----------------------------------------
@@ -529,7 +570,8 @@ module sdram_axi_core (
           addr_q[AUTO_PRECHARGE] <= 1'b0;
 
           // Read mask (all bytes in burst)
-          dqm_q                  <= {SDRAM_DQM_W{1'b0}};
+          dqm0_q                 <= {SDRAM_DQM_W{1'b0}};
+          dqm1_q                 <= {SDRAM_DQM_W{1'b0}};
         end
         //-----------------------------------------
         // STATE_WRITE0
@@ -538,14 +580,17 @@ module sdram_axi_core (
           command_q              <= CMD_WRITE;
           addr_q                 <= addr_col_w;
           bank_q                 <= addr_bank_w;
-          data_q                 <= ram_write_data_w[15:0];
+          data0_q                <= ram_write_data_w[15:0];
+          data1_q                <= ram_write_data_w[31:16];
 
           // Disable auto precharge (auto close of row)
           addr_q[AUTO_PRECHARGE] <= 1'b0;
 
           // Write mask
-          dqm_q                  <= ~ram_wr_w[1:0];
-          dqm_buffer_q           <= ~ram_wr_w[3:2];
+          dqm0_q                 <= ~ram_wr_w[1:0];
+          dqm1_q                 <= ~ram_wr_w[3:2];
+
+          //dqm_buffer_q           <= ~ram_wr_w[3:2];
 
           data_rd_en_q           <= 1'b0;
         end
@@ -556,13 +601,13 @@ module sdram_axi_core (
           // Burst continuation
           command_q              <= CMD_NOP;
 
-          data_q                 <= data_buffer_q;
+          //data_q                 <= data_buffer_q;
 
           // Disable auto precharge (auto close of row)
           addr_q[AUTO_PRECHARGE] <= 1'b0;
 
           // Write mask
-          dqm_q                  <= dqm_buffer_q;
+          //dqm_q                  <= dqm_buffer_q;
         end
       endcase
     end
@@ -588,7 +633,8 @@ module sdram_axi_core (
     else if (rd_q[SDRAM_READ_LATENCY+1]) data_buffer_q <= sample_data_q;
 
   // Read data output
-  assign ram_read_data_w = {sample_data_q, data_buffer_q};
+  //assign ram_read_data_w = {sample_data_q, data_buffer_q};
+  assign ram_read_data_w = {sample_data1_q, sample_data0_q};
 
   //-----------------------------------------------------------------
   // ACK
@@ -599,31 +645,37 @@ module sdram_axi_core (
     if (rst_i) ack_q <= 1'b0;
     else begin
       if (state_q == STATE_WRITE1) ack_q <= 1'b1;
-      else if (rd_q[SDRAM_READ_LATENCY+1]) ack_q <= 1'b1;
+      //else if (rd_q[SDRAM_READ_LATENCY+1]) ack_q <= 1'b1;
+      else if (rd_q[SDRAM_READ_LATENCY]) ack_q <= 1'b1;
       else ack_q <= 1'b0;
     end
 
-  assign ram_ack_w           = ack_q;
+  assign ram_ack_w            = ack_q;
 
   // Accept command in READ or WRITE0 states
-  assign ram_accept_w        = (state_q == STATE_READ || state_q == STATE_WRITE0);
+  assign ram_accept_w         = (state_q == STATE_READ || state_q == STATE_WRITE0);
 
   //-----------------------------------------------------------------
   // SDRAM I/O
   //-----------------------------------------------------------------
-  assign sdram_clk_o         = ~clk_i;
-  assign sdram_data_out_en_o = ~data_rd_en_q;
-  assign sdram_data_output_o = data_q;
-  assign sdram_data_in_w     = sdram_data_input_i;
+  assign sdram_clk_o          = ~clk_i;
+  assign sdram_data_out_en_o0 = ~data_rd_en_q;
+  assign sdram_data_out_en_o1 = ~data_rd_en_q;
+  assign sdram_data_output_o0 = data0_q;
+  assign sdram_data_output_o1 = data1_q;
+  assign sdram_data_in0_w     = sdram_data_input_i0;
+  assign sdram_data_in1_w     = sdram_data_input_i1;
 
-  assign sdram_cke_o         = cke_q;
-  assign sdram_cs_o          = command_q[3];
-  assign sdram_ras_o         = command_q[2];
-  assign sdram_cas_o         = command_q[1];
-  assign sdram_we_o          = command_q[0];
-  assign sdram_dqm_o         = dqm_q;
-  assign sdram_ba_o          = bank_q;
-  assign sdram_addr_o        = addr_q;
+  assign sdram_cke_o          = cke_q;
+  //assign sdram_cs_o          = command_q[3];
+  assign sdram_cs_o           = cs_q;
+  assign sdram_ras_o          = command_q[2];
+  assign sdram_cas_o          = command_q[1];
+  assign sdram_we_o           = command_q[0];
+  assign sdram_dqm0_o         = dqm0_q;
+  assign sdram_dqm1_o         = dqm1_q;
+  assign sdram_ba_o           = bank_q;
+  assign sdram_addr_o         = addr_q;
 
   //-----------------------------------------------------------------
   // Simulation only

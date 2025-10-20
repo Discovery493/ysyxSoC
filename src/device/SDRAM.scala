@@ -93,13 +93,13 @@ class SDRAMHelper(memOffset: Int, high: Int)
       |import "DPI-C" function void sdram_write(input int addr, input shortint data, input byte dqm, input int offset, input int hiAddr);
       |always @(posedge clk) begin
       |  if (ren) begin
-      |    sdram_read({7'b0, addr}, rdata);
+      |    sdram_read({7'b0, addr}, rdata, offset, hiAddr);
       |  end
       |  else if (!ren) begin
       |    rdata = 0;
       |  end
       |  if (wen) begin
-      |    sdram_write({7'b0, addr}, wdata, {6'b0, dqm});
+      |    sdram_write({7'b0, addr}, wdata, {6'b0, dqm}, offset, hiAddr);
       |  end
       |end
       |endmodule
