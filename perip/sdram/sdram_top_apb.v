@@ -54,7 +54,7 @@ module sdram_top_apb (
     .SDRAM_MHZ(100),
     .SDRAM_ADDR_W(24),
     .SDRAM_COL_W(9),
-    .SDRAM_READ_LATENCY(2)
+    .SDRAM_READ_LATENCY(1)
   ) u_sdram_ctrl(
     .clk_i(clock),
     .rst_i(reset),

@@ -73,7 +73,7 @@ module sdram_axi_core (
   parameter SDRAM_MHZ = 50;
   parameter SDRAM_ADDR_W = 24;
   parameter SDRAM_COL_W = 9;
-  parameter SDRAM_READ_LATENCY = 2;
+  parameter SDRAM_READ_LATENCY = 1;
 
   //-----------------------------------------------------------------
   // Defines / Local params
@@ -477,7 +477,7 @@ module sdram_axi_core (
           addr_q       <= {SDRAM_ROW_W{1'b0}};
           bank_q       <= {SDRAM_BANK_W{1'b0}};
           data_rd_en_q <= 1'b1;
-          cs_q         <= 4'b0;
+          //cs_q         <= 4'b0;
         end
         //-----------------------------------------
         // STATE_INIT
@@ -565,6 +565,8 @@ module sdram_axi_core (
           command_q              <= CMD_READ;
           addr_q                 <= addr_col_w;
           bank_q                 <= addr_bank_w;
+          // Select SDRAMs
+          cs_q                   <= {{2{~ram_addr_w[26]}}, {2{ram_addr_w[26]}}};
 
           // Disable auto precharge (auto close of row)
           addr_q[AUTO_PRECHARGE] <= 1'b0;
@@ -582,6 +584,8 @@ module sdram_axi_core (
           bank_q                 <= addr_bank_w;
           data0_q                <= ram_write_data_w[15:0];
           data1_q                <= ram_write_data_w[31:16];
+          // Select SDRAMs
+          cs_q                   <= {{2{~ram_addr_w[26]}}, {2{ram_addr_w[26]}}};
 
           // Disable auto precharge (auto close of row)
           addr_q[AUTO_PRECHARGE] <= 1'b0;
@@ -608,6 +612,10 @@ module sdram_axi_core (
 
           // Write mask
           //dqm_q                  <= dqm_buffer_q;
+
+          // Now only need 1 cycle write, disable 2nd cycle of burst
+          dqm0_q                 <= 2'b11;
+          dqm1_q                 <= 2'b11;
         end
       endcase
     end
