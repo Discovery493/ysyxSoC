@@ -52,14 +52,14 @@ class ysyxSoCASIC(implicit p: Parameters) extends LazyModule {
   )
   val lpsram   = LazyModule(new APBPSRAM(AddressSet.misaligned(0x80000000L, 0x400000)))
   val lmrom    = LazyModule(new AXI4MROM(AddressSet.misaligned(0x20000000, 0x1000)))
-  val sramNode = AXI4RAM(AddressSet.misaligned(0x0f000000, 0x2000).head, false, true, 8, None, Nil, false)
+  val sramNode = AXI4RAM(AddressSet.misaligned(0x0f000000, 0x2000).head, false, true, 4, None, Nil, false)
 
   val sdramAddressSet = AddressSet.misaligned(0xa0000000L, 0x2000000)
   val lsdram_apb      = if (!Config.sdramUseAXI) Some(LazyModule(new APBSDRAM(sdramAddressSet))) else None
   val lsdram_axi      = if (Config.sdramUseAXI) Some(LazyModule(new AXI4SDRAM(sdramAddressSet))) else None
 
   List(lspi.node, luart.node, lpsram.node, lgpio.node, lkeyboard.node, lvga.node).map(_ := apbxbar)
-  List(apbxbar := APBDelayer() := AXI4ToAPB(), lmrom.node, sramNode).map(_ := xbar2)
+  List(apbxbar := APBDelayer() := AXI4ToAPB() := AXI4Buffer(), lmrom.node, sramNode).map(_ := xbar2)
   xbar2                                       := AXI4UserYanker(Some(1)) := AXI4Fragmenter() := xbar
   if (Config.sdramUseAXI) lsdram_axi.get.node := ysyx.AXI4Delayer()      := xbar
   else lsdram_apb.get.node                    := apbxbar
