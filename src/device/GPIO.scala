@@ -38,9 +38,22 @@ class GetGPIOSeg extends RawModule {
     io.in,
     TruthTable(
       Map(
-        BitPat("b0000") -> BitPat("b11111111"),
-        BitPat("b0001") -> BitPat("b00011110"),
-        BitPat("b0010") -> BitPat("b00001111")
+        BitPat("b0000") -> BitPat("b00000011"),
+        BitPat("b0001") -> BitPat("b10011111"),
+        BitPat("b0010") -> BitPat("b00100101"),
+        BitPat("b0011") -> BitPat("b00001101"),
+        BitPat("b0100") -> BitPat("b10011001"),
+        BitPat("b0101") -> BitPat("b01001001"),
+        BitPat("b0110") -> BitPat("b01000001"),
+        BitPat("b0111") -> BitPat("b00011111"),
+        BitPat("b1000") -> BitPat("b00000001"),
+        BitPat("b1001") -> BitPat("b00001001"),
+        BitPat("b1010") -> BitPat("b00010001"),
+        BitPat("b1011") -> BitPat("b11000001"),
+        BitPat("b1100") -> BitPat("b01100011"),
+        BitPat("b1101") -> BitPat("b10000101"),
+        BitPat("b1110") -> BitPat("b01100001"),
+        BitPat("b1111") -> BitPat("b01110001")
       ),
       BitPat("b????????")
     )
