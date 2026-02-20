@@ -72,7 +72,7 @@ class ps2Chisel extends Module {
   val scan_code        = shift_reg(8, 1)
   val data_valid_pulse = RegNext(counter) === 10.U && counter === 11.U // 1 cycle pulse!
   // SyncFIFO
-  val fifo = Module(new SyncFIFO(num = 16, width = 8))
+  val fifo = Module(new SyncFIFO(num = 64, width = 8))
   fifo.io.write.valid := data_valid_pulse
   fifo.io.write.bits  := scan_code
   // Data output, read FIFO if not empty. Otherwise, output 0 to prevent CPU stall.
